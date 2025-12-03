@@ -2,3 +2,4 @@ flask
 qrcode
 pillow
 pyserial
+gunicorn
