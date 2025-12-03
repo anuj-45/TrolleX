@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}TrolleX – Payment{% endblock %}
+
+{% block content %}
+<section class="payment-section">
+  <h2>Payment</h2>
+  <p id="payment-info">Fetching bill amount…</p>
+
+  <div class="qr-wrapper">
+    <img id="qr-img" alt="UPI QR" />
+  </div>
+
+  <button id="payment-done-btn">Payment Done</button>
+
+  <p id="payment-status" class="status"></p>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener("DOMContentLoaded", async () => {
+    // get total + link
+    const res = await fetch("/api/start-payment", { method: "POST" });
+    const data = await res.json();
+
+    const infoEl = document.getElementById("payment-info");
+    const qrImg = document.getElementById("qr-img");
+
+    if (!data.ok) {
+      infoEl.textContent = data.message || "Cannot start payment.";
+      return;
+    }
+
+    infoEl.textContent = "Total amount: ₹" + data.total;
+    qrImg.src = "/api/payment-qr";
+
+    document.getElementById("payment-done-btn").onclick = async () => {
+      const r = await fetch("/api/payment-done", { method: "POST" });
+      const d = await r.json();
+      const st = document.getElementById("payment-status");
+      st.textContent = d.ok ? "Payment marked as done." : "Could not mark payment.";
+      st.classList.add(d.ok ? "ok" : "error");
+    };
+  });
+</script>
+{% endblock %}

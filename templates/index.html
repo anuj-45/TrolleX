@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}TrolleX – Cart{% endblock %}
+
+{% block content %}
+<section class="scan-section">
+  <h2>Scan / Enter Barcode</h2>
+  <div class="scan-row">
+    <input id="barcode-input" type="text" placeholder="Scan or type barcode">
+    <button id="scan-btn">Add Item</button>
+  </div>
+  <p id="status-text" class="status ok">
+    System ready — scan first item
+  </p>
+</section>
+
+<section class="cart-section">
+  <h2>Current Cart</h2>
+  <table class="cart-table">
+    <thead>
+      <tr>
+        <th>Barcode</th>
+        <th>Product</th>
+        <th>Price (₹)</th>
+        <th>Qty</th>
+        <th>Line Total (₹)</th>
+        <th>Action</th>
+    </tr>
+
+    </thead>
+    <tbody id="cart-body">
+      <!-- filled by JS -->
+    </tbody>
+  </table>
+
+  <div class="total-row">
+    <span>Total:</span>
+    <span id="total-amount">₹0</span>
+  </div>
+
+  <div class="actions">
+    <button id="finish-btn">Finish Shopping</button>
+    <a href="{{ url_for('payment_page') }}" id="go-payment" class="hidden">
+      Go to Payment
+    </a>
+  </div>
+</section>
+{% endblock %}

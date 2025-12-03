@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}TrolleX – Security{% endblock %}
+
+{% block content %}
+<section class="security-section">
+  <h2>Security Verification</h2>
+
+  <form id="security-form">
+    <label>
+      Passkey:
+      <input type="password" id="passkey-input">
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" id="confirm-checkbox">
+      Payment verified by customer
+    </label>
+    <button type="submit">Verify</button>
+  </form>
+
+  <p id="security-status" class="status"></p>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("security-form");
+    const status = document.getElementById("security-status");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const passkey = document.getElementById("passkey-input").value;
+      const confirm = document.getElementById("confirm-checkbox").checked;
+
+      const res = await fetch("/api/security-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passkey, confirm })
+      });
+      const data = await res.json();
+
+      status.textContent = data.message || (data.ok ? "OK" : "Error");
+      status.classList.remove("ok", "error");
+      status.classList.add(data.ok ? "ok" : "error");
+    });
+  });
+</script>
+{% endblock %}

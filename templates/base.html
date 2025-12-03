@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}TrolleX – Smart Trolley{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="header">
+    <h1>TrolleX – Smart Trolley Billing</h1>
+    <nav class="nav">
+      <a href="{{ url_for('index') }}">Cart</a>
+      <a href="{{ url_for('payment_page') }}">Payment</a>
+      <a href="{{ url_for('security_page') }}">Security</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

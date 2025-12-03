@@ -1,0 +1,122 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f5f7f9;
+  color: #222;
+}
+
+.header {
+  background: #2c3e50;
+  color: white;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav a {
+  color: #ecf0f1;
+  margin-left: 16px;
+  text-decoration: none;
+}
+
+.nav a:hover {
+  text-decoration: underline;
+}
+
+.container {
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.scan-section, .cart-section, .payment-section, .security-section {
+  margin-bottom: 24px;
+  background: white;
+  padding: 16px 20px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.scan-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#barcode-input {
+  flex: 1;
+  padding: 8px;
+  font-size: 14px;
+}
+
+button {
+  padding: 8px 14px;
+  font-size: 14px;
+  border: none;
+  border-radius: 4px;
+  background: #27ae60;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1f8b4d;
+}
+
+.cart-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+.cart-table th, .cart-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: center;
+}
+
+.total-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  font-weight: bold;
+}
+
+.status {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.status.ok {
+  color: #27ae60;
+}
+
+.status.error {
+  color: #e74c3c;
+}
+
+.actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.hidden {
+  display: none;
+}
+
+.qr-wrapper {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.qr-wrapper img {
+  max-width: 260px;
+  border: 1px solid #ccc;
+}
+.status.warning {
+  color: #e67e22;
+}
