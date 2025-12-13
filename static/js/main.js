@@ -1,3 +1,11 @@
+// ---- Backend base URL ----
+// For local testing:
+// const BASE_URL = "http://localhost:5000";
+
+// After deploy to Render:
+const BASE_URL = "https://YOUR-RENDER-NAME.onrender.com";
+
+
 // ---- Cart state held on frontend for duplicate check ----
 
 let lastCart = [];
@@ -6,10 +14,11 @@ function itemInCart(barcode) {
   return lastCart.find(it => it.barcode === barcode);
 }
 
+
 // ---- Load cart from backend and render ----
 
 async function fetchCart() {
-  const res = await fetch("/api/cart");
+  const res = await fetch(`${BASE_URL}/api/cart`);
   const data = await res.json();
 
   lastCart = data.items || [];
@@ -47,6 +56,7 @@ async function fetchCart() {
   totalEl.textContent = "₹" + (data.total || 0);
 }
 
+
 // ---- Scan / add item ----
 
 async function scanBarcode() {
@@ -72,7 +82,7 @@ async function scanBarcode() {
   status.textContent = "Processing scan…";
   status.className = "status";
 
-  const res = await fetch("/api/scan", {
+  const res = await fetch(`${BASE_URL}/api/scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ barcode })
@@ -90,6 +100,7 @@ async function scanBarcode() {
   }
 }
 
+
 // ---- Weighted Remove 1 with confirmation ----
 
 async function removeOneWithConfirm(barcode, name) {
@@ -105,7 +116,7 @@ async function removeOneWithConfirm(barcode, name) {
   status.textContent = "Please remove the item from trolley and wait…";
   status.className = "status";
 
-  const res = await fetch("/api/remove-one", {
+  const res = await fetch(`${BASE_URL}/api/remove-one`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ barcode })
@@ -122,11 +133,26 @@ async function removeOneWithConfirm(barcode, name) {
   }
 }
 
+
+// ---- Background weight security monitor ----
+
+setInterval(() => {
+  fetch(`${BASE_URL}/api/monitor`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.alert) {
+        alert(data.alert);  // Popup like Tkinter
+      }
+    })
+    .catch(err => console.error("Monitor error", err));
+}, 2000);  // Every 2s like Tkinter root.after(2000)
+
+
 // ---- Finish shopping / start payment ----
 
 async function finishShopping() {
   const status = document.getElementById("status-text");
-  const res = await fetch("/api/start-payment", { method: "POST" });
+  const res = await fetch(`${BASE_URL}/api/start-payment`, { method: "POST" });
   const data = await res.json();
 
   if (data.ok) {
@@ -139,6 +165,7 @@ async function finishShopping() {
     status.className = "status error";
   }
 }
+
 
 // ---- Init on each page ----
 
@@ -163,3 +190,48 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchCart();
   }
 });
+
+
+// FINISH SHOPPING - Redirect to QR Payment
+document.addEventListener('DOMContentLoaded', function() {
+  const finishBtn = document.getElementById('finishBtn');
+  if (finishBtn) {
+    finishBtn.addEventListener('click', function() {
+      // Save current cart state first
+      fetchCart();
+      // Redirect to payment page
+      window.location.href = '/payment';
+    });
+  }
+});
+
+// Also handle any standalone Finish buttons on index.html
+document.querySelectorAll('.finish-shopping-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    window.location.href = '/payment';
+  });
+});
+
+
+// ---- Live weight display from backend (/api/get_weight) ----
+
+async function fetchWeight() {
+  try {
+    const res = await fetch(`${BASE_URL}/api/get_weight`);
+    const data = await res.json();
+    const weight = data.weight;
+
+    console.log("Weight:", weight);
+
+    // Update UI element showing weight
+    const el = document.getElementById("weight_value");
+    if (el) {
+      el.textContent = weight.toFixed(2) + " g";
+    }
+  } catch (err) {
+    console.error("Error fetching weight", err);
+  }
+}
+
+// Call periodically (e.g. every 1 second)
+setInterval(fetchWeight, 1000);

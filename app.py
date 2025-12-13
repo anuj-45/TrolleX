@@ -1,13 +1,38 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import io
 import qrcode
-
 import core_smart_trolley as core
 
 app = Flask(__name__)
 
-# ---------- PAGES ----------
+# ----------------- WEIGHT STORAGE (for ESP32) -----------------
+current_weight = 0.0  # latest weight sent from ESP32
 
+
+@app.route("/api/update_weight", methods=["POST"])
+def update_weight():
+    """
+    ESP32 calls this endpoint (HTTP POST) with JSON: {"weight": <value>}
+    to update the latest weight on the server.
+    """
+    global current_weight
+    data = request.get_json(force=True) or {}
+    try:
+        current_weight = float(data.get("weight", 0))
+    except (TypeError, ValueError):
+        current_weight = 0.0
+    return jsonify({"ok": True})
+
+
+@app.route("/api/get_weight", methods=["GET"])
+def get_weight():
+    """
+    Frontend/app can call this to read latest weight stored on server.
+    """
+    return jsonify({"weight": current_weight})
+
+
+# ---------- PAGES ----------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -15,7 +40,9 @@ def index():
 
 @app.route("/payment")
 def payment_page():
-    return render_template("payment.html")
+    total = request.args.get('total', 0)
+    upi = request.args.get('upi', '')
+    return render_template("payment.html", total=total, upi_link=upi)
 
 
 @app.route("/security")
@@ -24,13 +51,13 @@ def security_page():
 
 
 # ---------- API ENDPOINTS ----------
-
 @app.route("/api/cart", methods=["GET"])
 def api_cart():
     return jsonify({
         "items": core.cart_as_list(),
         "total": core.cart_total()
     })
+
 
 @app.route("/api/remove-one", methods=["POST"])
 def api_remove_one():
@@ -50,18 +77,26 @@ def api_scan():
         return jsonify({"ok": False, "error": "NO_BARCODE"}), 400
 
     result = core.add_to_cart(barcode)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.route('/api/monitor', methods=['GET'])
+def api_monitor():
+    result = core.verify_cart_weight()
     return jsonify(result)
 
 
-@app.route("/api/start-payment", methods=["POST"])
-def api_start_payment():
-    result = core.start_payment()
-    return jsonify(result)
+@app.route("/api/finish-shopping", methods=["POST"])
+def api_finish_shopping():
+    result = core.finish_shopping()
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @app.route("/api/payment-done", methods=["POST"])
 def api_payment_done():
-    result = core.mark_customer_paid()
+    result = core.customer_done()
     return jsonify(result)
 
 
@@ -69,21 +104,17 @@ def api_payment_done():
 def api_security_check():
     data = request.get_json(silent=True) or {}
     passkey = data.get("passkey", "")
-    confirm = bool(data.get("confirm", False))
-
-    result = core.security_verify(passkey, confirm)
+    result = core.security_check(passkey)
     return jsonify(result)
 
 
 @app.route("/api/payment-qr")
 def api_payment_qr():
-    """Generate QR image for current payment UPI link."""
-    info = core.start_payment()
+    info = core.finish_shopping()
     if not info.get("ok"):
         return jsonify(info), 400
 
     upi_link = info["upi_link"]
-
     qr = qrcode.QRCode(box_size=6, border=2)
     qr.add_data(upi_link)
     qr.make(fit=True)
@@ -96,6 +127,5 @@ def api_payment_qr():
 
 
 if __name__ == "__main__":
-    ok = core.init_arduino("COM3", 57600)
-    print("Arduino connected:", ok)
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Local dev run
+    app.run(host="0.0.0.0", port=5000, debug=False)

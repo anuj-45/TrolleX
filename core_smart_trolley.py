@@ -1,35 +1,24 @@
+# core_smart_trolley.py - WiFi weight version
 import time
-import serial
+import requests
 
-# ---------- ARDUINO / LOAD CELL SETTINGS ----------
+# -------------------------------
+# ESP32 + WEIGHT SETTINGS (WiFi)
+# -------------------------------
+ESP_IP = "172.17.42.125"  # your ESP32 IP
 
-arduino = None
-arduino_connected = False  # flag
+MARGIN = 20
 
-
-def init_arduino(port="COM3", baudrate=57600):
-    """Try to connect to Arduino. Returns True if OK, False otherwise."""
-    global arduino, arduino_connected
-    try:
-        arduino = serial.Serial(port, baudrate)
-        time.sleep(2)
-        arduino_connected = True
-    except Exception:
-        arduino = None
-        arduino_connected = False
-    return arduino_connected
-
-
-MARGIN = 20  # grams tolerance
-
+# -------------------------------
+# PRODUCT DATA (EXACT COPY)
+# -------------------------------
 PRODUCT_WEIGHTS = {
-    "8901030862243": 60,   # Vim Bar
-    "8901248701129": 18,   # Zandu Balm
-    "8901248701129": 18,   # Zandu Balm
-    "8901719134852": 91,   # Parle-G
-    "8901399005169": 140,  # Santoor 150gm
-    "000022": 500,         # Tur dal 500gm
-    "8901399007811": 39,   # Santoor 40gm
+    "8901030862243": 60,    # Vim Bar
+    "8901248701129": 18,    # Zandu Balm
+    "8901719134852": 91,    # Parle-G
+    "8901399005169": 140,   # Santoor 150gm
+    "000022": 500,          # Tur dal 500gm
+    "8901399007811": 39,    # Santoor 40gm
 }
 
 PRODUCTS = {
@@ -41,284 +30,257 @@ PRODUCTS = {
     "8901399007811": ["Santoor 40gm", 10],
 }
 
-SECURITY_PASS = "1234"
-
-# ---------- RUNTIME STATE ----------
-
-cart = {}  # barcode -> [name, qty, price]
-
+# -------------------------------
+# GLOBALS (EXACT)
+# -------------------------------
+cart = {}  # Dict format like Tkinter
 last_stable_weight = 0.0
+processing_scan = False
 monitor_enabled = True
 
-payment_started = False
-payment_done_by_customer = False
 
-
-# ---------- WEIGHT / CART LOGIC ----------
-
-def read_weight(timeout=2.5):
-    """Read stable weight from Arduino; return last_stable_weight if unstable or no Arduino."""
+def read_weight():
+    """WiFi version of read_weight(): gets stable weight from ESP32 /weight"""
     global last_stable_weight
 
-    if not arduino_connected:
-        # Arduino not connected: behave as if weight is stable at last_stable_weight
-        return last_stable_weight
-
-    arduino.reset_input_buffer()
     readings = []
     start_time = time.time()
 
-    while time.time() - start_time < timeout:
-        if arduino.in_waiting > 0:
-            try:
-                line = arduino.readline().decode().strip()
-                if not line:
-                    continue
-                weight = float(line)
-                readings.append(weight)
-                if len(readings) > 3:
-                    readings.pop(0)
+    while time.time() - start_time < 2.5:
+        try:
+            r = requests.get(f"http://{ESP_IP}/weight", timeout=1)
+            data = r.json()
+            w = float(data.get("weight", 0))
+        except Exception:
+            # network or parse error, skip this sample
+            continue
 
-                if len(readings) >= 2 and max(readings) - min(readings) <= 2:
-                    stable = sum(readings) / len(readings)
-                    if abs(stable) < 3:
-                        stable = 0.0
-                    return stable
-            except ValueError:
-                continue
+        readings.append(w)
+        if len(readings) > 3:
+            readings.pop(0)
 
+        if len(readings) >= 2 and max(readings) - min(readings) <= 2:
+            stable = sum(readings) / len(readings)
+            if abs(stable) < 3:
+                stable = 0.0
+            print(f"[DEBUG] Stable weight: {stable:.2f} g")
+            last_stable_weight = stable
+            return stable
+
+    print(f"[DEBUG] ❌ No stable weight found, using last stable: {last_stable_weight:.2f} g")
     return last_stable_weight
 
 
 def total_expected_weight():
+    """EXACT Tkinter total_expected_weight()"""
     total = 0
-    for code, (name, qty, price) in cart.items():
+    for code, data in cart.items():
+        name, qty, price = data
         if code in PRODUCT_WEIGHTS:
             total += PRODUCT_WEIGHTS[code] * qty
     return total
 
 
-def verify_cart_weight():
-    actual = read_weight()
-    expected = total_expected_weight()
-    diff = actual - expected
-
-    if abs(diff) <= MARGIN:
-        return {"ok": True, "message": "Weight OK", "actual": actual, "expected": expected}
-
-    if diff > 0:
-        status = "extra"
-        message = "Extra item added without scanning."
-    else:
-        status = "missing"
-        message = "Item removed without scanning."
-
-    return {
-        "ok": False,
-        "status": status,
-        "message": message,
-        "actual": actual,
-        "expected": expected,
-    }
-
-
 def add_to_cart(barcode):
-    """Process one scanned barcode and return result dict for frontend."""
-    global last_stable_weight
+    """EXACT Tkinter logic with monitoring pause"""
+    global processing_scan, monitor_enabled, last_stable_weight
 
-    if barcode not in PRODUCTS:
-        return {"ok": False, "error": "UNKNOWN_BARCODE", "message": f"Barcode {barcode} not found."}
+    if processing_scan:
+        return {"ok": False, "error": "PROCESSING"}
 
-    name, price = PRODUCTS[barcode]
-    expected_item_weight = PRODUCT_WEIGHTS.get(barcode, 0)
+    processing_scan = True
+    monitor_enabled = False  # PAUSE MONITORING DURING SCAN
 
-    if expected_item_weight == 0:
-        return {"ok": False, "error": "NO_WEIGHT", "message": f"No expected weight for {barcode}."}
+    try:
+        print(f"[DEBUG] Scanned barcode: {barcode}")
 
-    # check if this item was already in cart
-    old_qty = cart[barcode][1] if barcode in cart else 0
-    double_scan = old_qty >= 1
+        if barcode not in PRODUCTS:
+            return {
+                "ok": False,
+                "error": "UNKNOWN_BARCODE",
+                "message": f"Barcode {barcode} not found",
+            }
 
-    # baseline before placing
-    weight_before = last_stable_weight
+        name, price = PRODUCTS[barcode]
+        expected_item_weight = PRODUCT_WEIGHTS.get(barcode, 0)
 
-    # if Arduino is not connected, skip real weight logic and just add item
-    if not arduino_connected:
-        if barcode in cart:
-            cart[barcode][1] += 1
+        # Stable baseline (EXACT Tkinter)
+        print("[DEBUG] Waiting for stable baseline...")
+        stable_empty = False
+        empty_start = time.time()
+        while time.time() - empty_start < 6:
+            w = read_weight()
+            if 0 <= w <= 5 or abs(w - last_stable_weight) <= 3:
+                stable_empty = True
+                break
+            time.sleep(0.5)
+
+        if not stable_empty:
+            weight_before = last_stable_weight
         else:
-            cart[barcode] = [name, 1, price]
-        last_stable_weight += expected_item_weight
-        total = cart_total()
-        return {
-            "ok": True,
-            "name": name,
-            "price": price,
-            "qty": cart[barcode][1],
-            "diff": 0.0,
-            "expected_item_weight": expected_item_weight,
-            "cart": cart_as_list(),
-            "total": total,
-            "double_scan": double_scan,
-            "weight_check": {"ok": True, "message": "Arduino not connected; weight check skipped."},
-        }
+            weight_before = last_stable_weight
+        print(f"[DEBUG] Weight before placing: {weight_before:.2f}g")
 
-    # ----- real weight flow when Arduino is connected -----
-    start_time = time.time()
-    stable_candidates = []
+        # Wait for stable after placing (EXACT Tkinter)
+        start_time = time.time()
+        stable_after_values = []
+        while time.time() - start_time < 6:
+            w = read_weight()
+            if w > weight_before + 5:
+                stable_after_values.append(w)
+            time.sleep(0.8)
 
-    while time.time() - start_time < 6:
-        w = read_weight()
-        if w > weight_before + 5:
-            stable_candidates.append(w)
-        time.sleep(0.5)
-
-    if stable_candidates:
-        weight_after = max(stable_candidates)
-    else:
-        weight_after = weight_before
-
-    diff = abs(weight_after - weight_before)
-
-    if abs(diff - expected_item_weight) <= MARGIN:
-        if barcode in cart:
-            cart[barcode][1] += 1
+        if stable_after_values:
+            weight_after = max(stable_after_values)
         else:
-            cart[barcode] = [name, 1, price]
+            weight_after = weight_before
 
-        last_stable_weight += expected_item_weight
+        print(f"[DEBUG] Weight after placing: {weight_after:.2f}g")
+        diff = abs(weight_after - weight_before)
+        print(f"[DEBUG] ΔWeight: {diff:.2f}g")
 
-        total = cart_total()
-        weight_check = verify_cart_weight()
+        if abs(diff - expected_item_weight) <= MARGIN:
+            if barcode in cart:
+                cart[barcode][1] += 1  # qty
+            else:
+                cart[barcode] = [name, 1, price]
 
-        return {
-            "ok": True,
-            "name": name,
-            "price": price,
-            "qty": cart[barcode][1],
-            "diff": diff,
-            "expected_item_weight": expected_item_weight,
-            "cart": cart_as_list(),
-            "total": total,
-            "double_scan": double_scan,
-            "weight_check": weight_check,
-        }
+            last_stable_weight += expected_item_weight
+            total = sum(data[1] * data[2] for data in cart.values())
 
-    return {
-        "ok": False,
-        "error": "WEIGHT_MISMATCH",
-        "message": "Measured weight does not match expected item weight.",
-        "diff": diff,
-        "expected_item_weight": expected_item_weight,
-    }
+            print(f"[DEBUG] ✅ Added {name}, weight OK ({diff:.2f}g ≈ {expected_item_weight}g)")
+            print(f"[DEBUG] Updated total stable trolley weight: {last_stable_weight:.2f}g")
+
+            return {
+                "ok": True,
+                "message": f"{name} added successfully!",
+                "barcode": barcode,
+                "total": total,
+            }
+        else:
+            return {
+                "ok": False,
+                "error": "WEIGHT_MISMATCH",
+                "message": f"Measured: {diff:.1f}g (Expected: {expected_item_weight}g)",
+            }
+    finally:
+        processing_scan = False
+        monitor_enabled = True  # RESUME MONITORING
+        print("[DEBUG] Monitoring resumed")
+
 
 def remove_one_weighted(barcode):
-    """Remove one quantity of an item with weight check."""
-    global last_stable_weight
+    """COMPLETE remove with monitoring pause"""
+    global monitor_enabled, last_stable_weight
 
-    if barcode not in cart:
-        return {"ok": False, "error": "NOT_IN_CART", "message": "Item not in cart."}
+    monitor_enabled = False  # PAUSE MONITORING
 
-    name, qty, price = cart[barcode]
-    expected_item_weight = PRODUCT_WEIGHTS.get(barcode, 0)
+    try:
+        if barcode not in cart or cart[barcode][1] <= 0:
+            return {
+                "ok": False,
+                "error": "NOT_IN_CART",
+                "message": "Item not in cart",
+            }
 
-    if expected_item_weight == 0:
-        return {"ok": False, "error": "NO_WEIGHT", "message": f"No expected weight for {barcode}."}
+        name, qty, price = cart[barcode]
+        expected_weight = PRODUCT_WEIGHTS[barcode]
 
-    # If Arduino not connected, skip weight logic but still allow removal (for testing)
-    if not arduino_connected:
-        if qty > 1:
+        # Weight before removal
+        before = read_weight()
+        print(f"[DEBUG] Weight before remove: {before:.2f}g")
+
+        print("[DEBUG] Remove item and wait...")
+        time.sleep(2.5)
+
+        # Weight after removal
+        after = read_weight()
+        drop = abs(before - after)
+        print(f"[DEBUG] Weight after remove: {after:.2f}g | Drop: {drop:.2f}g")
+
+        if abs(drop - expected_weight) <= MARGIN:
             cart[barcode][1] -= 1
+            if cart[barcode][1] == 0:
+                del cart[barcode]
+            last_stable_weight -= expected_weight
+            total = sum(data[1] * data[2] for data in cart.values())
+
+            print(f"[DEBUG] ✅ Removed {name}, drop OK ({drop:.2f}g ≈ {expected_weight}g)")
+            print(f"[DEBUG] Updated total stable trolley weight: {last_stable_weight:.2f}g")
+
+            return {
+                "ok": True,
+                "message": f"Removed {name}",
+                "barcode": barcode,
+                "total": total,
+            }
         else:
-            del cart[barcode]
-        last_stable_weight = max(0.0, last_stable_weight - expected_item_weight)
-        return {
-            "ok": True,
-            "message": f"Removed one {name} (Arduino not connected, weight check skipped).",
-            "cart": cart_as_list(),
-            "total": cart_total(),
-        }
-
-    # ---- real weight check ----
-    weight_before = read_weight()
-
-    # Ask frontend to tell customer: "Please remove the item now"
-    # Then wait up to 6 seconds for stable lower weight
-    start_time = time.time()
-    candidates = []
-
-    while time.time() - start_time < 6:
-        w = read_weight()
-        if w < weight_before - 5:  # significant drop
-            candidates.append(w)
-        time.sleep(0.5)
-
-    if candidates:
-        weight_after = min(candidates)
-    else:
-        weight_after = weight_before
-
-    diff = abs(weight_before - weight_after)
-
-    if abs(diff - expected_item_weight) <= MARGIN:
-        # Accept removal
-        if qty > 1:
-            cart[barcode][1] -= 1
-        else:
-            del cart[barcode]
-
-        last_stable_weight = max(0.0, last_stable_weight - expected_item_weight)
-
-        return {
-            "ok": True,
-            "message": f"Removed one {name}.",
-            "diff": diff,
-            "expected_item_weight": expected_item_weight,
-            "cart": cart_as_list(),
-            "total": cart_total(),
-        }
-
-    return {
-        "ok": False,
-        "error": "WEIGHT_NOT_DROPPED",
-        "message": "Weight did not drop as expected. Please check trolley.",
-        "diff": diff,
-        "expected_item_weight": expected_item_weight,
-    }
+            return {
+                "ok": False,
+                "error": "WEIGHT_NOT_DROPPED",
+                "message": f"Drop: {drop:.1f}g (Expected: {expected_weight}g)",
+            }
+    finally:
+        monitor_enabled = True  # RESUME MONITORING
+        print("[DEBUG] Monitoring resumed")
 
 
+def verify_cart_weight():
+    """Only runs when NOT processing scan"""
+    if not monitor_enabled:
+        return {"ok": True, "skipped": "scan_active"}
+
+    actual = read_weight()
+    expected = total_expected_weight()
+
+    if abs(actual - expected) > MARGIN:
+        if actual > expected:
+            return {"alert": "⚠️ Extra item added without scanning!"}
+        elif actual < expected:
+            return {"alert": "⚠️ Item removed without scanning!"}
+    return {"ok": True}
+
+
+def monitor_weight():
+    """Background monitoring - runs every 2s like Tkinter"""
+    result = verify_cart_weight()
+    if "alert" in result:
+        print(f"[SECURITY ALERT] {result['alert']}")
+    return result
+
+
+# API Functions (for app.py)
 def cart_as_list():
-    """Return cart as a list of dicts for JSON."""
     items = []
-    for code, (name, qty, price) in cart.items():
+    for code, data in cart.items():
+        name, qty, price = data
         items.append(
             {
                 "barcode": code,
                 "name": name,
                 "qty": qty,
                 "price": price,
-                "line_total": price * qty,
             }
         )
     return items
 
 
 def cart_total():
-    return sum(price * qty for (name, qty, price) in cart.values())
+    return sum(data[1] * data[2] for data in cart.values())
 
 
-# ---------- PAYMENT / SECURITY ----------
+def clear_cart():
+    global cart, last_stable_weight
+    cart.clear()
+    last_stable_weight = 0.0
+    return True
 
-def start_payment():
-    """Prepare payment info and return UPI link."""
-    global payment_started, payment_done_by_customer
 
+def finish_shopping():
+    """Generate QR payment + total (Tkinter finish_shopping)"""
     total = cart_total()
-    if total <= 0:
-        return {"ok": False, "error": "EMPTY_CART", "message": "Cart is empty."}
-
-    payment_started = True
-    payment_done_by_customer = False
+    if total == 0:
+        return {"ok": False, "error": "CART_EMPTY"}
 
     upi_link = f"upi://pay?pa=9975068503@kotak&pn=Anuj&am={total}&cu=INR"
 
@@ -326,37 +288,19 @@ def start_payment():
         "ok": True,
         "total": total,
         "upi_link": upi_link,
+        "items": cart_as_list(),
+        "message": "Scan QR to pay",
     }
 
 
-def mark_customer_paid():
-    """Customer presses 'Payment Done'."""
-    global payment_done_by_customer
-    payment_done_by_customer = True
-    return {"ok": True}
+def customer_done():
+    """Customer confirms payment"""
+    return {"payment_confirmed": True}
 
 
-def security_verify(passkey: str, confirm_payment: bool):
-    """Security guard verifies payment with passkey and confirmation."""
-    global cart, monitor_enabled, payment_started
-
-    if not payment_started:
-        return {"ok": False, "error": "NO_PAYMENT_PAGE", "message": "Payment not started."}
-
-    if not cart:
-        monitor_enabled = False
-        return {"ok": True, "message": "Cart empty, session finished."}
-
-    if not payment_done_by_customer:
-        return {"ok": False, "error": "CUSTOMER_NOT_CONFIRMED", "message": "Customer has not confirmed payment yet."}
-
-    if passkey != SECURITY_PASS:
-        return {"ok": False, "error": "BAD_PASSKEY", "message": "Incorrect passkey."}
-
-    if not confirm_payment:
-        return {"ok": False, "error": "NOT_CONFIRMED", "message": "Security did not confirm payment."}
-
-    cart.clear()
-    monitor_enabled = False
-    payment_started = False
-    return {"ok": True, "message": "Payment verified, cart cleared."}
+def security_check(passkey):
+    """Security passkey check (Tkinter SECURITY_PASS = "1234")"""
+    if passkey == "1234":
+        clear_cart()
+        return {"ok": True, "message": "Payment verified. Cart cleared!"}
+    return {"ok": False, "error": "WRONG_PASSKEY"}
