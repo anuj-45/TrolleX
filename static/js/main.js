@@ -2,8 +2,9 @@
 // For local testing:
 // const BASE_URL = "http://localhost:5000";
 
-// After deploy to Render:
-const BASE_URL = "https://YOUR-RENDER-NAME.onrender.com";
+// Use same-origin (local) to avoid CORS during development.
+// For deployed installs, set this to your deployed origin if needed.
+const BASE_URL = "";
 
 
 // ---- Cart state held on frontend for duplicate check ----
