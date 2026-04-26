@@ -5,31 +5,29 @@ import core_smart_trolley as core
 
 app = Flask(__name__)
 
-# ----------------- WEIGHT STORAGE (for ESP32) -----------------
-current_weight = 0.0  # latest weight sent from ESP32
+# ----------------- WEIGHT STORAGE (ESP32 posts via Wi‑Fi) -----------------
 
 
 @app.route("/api/update_weight", methods=["POST"])
 def update_weight():
     """
-    ESP32 calls this endpoint (HTTP POST) with JSON: {"weight": <value>}
-    to update the latest weight on the server.
+    ESP32 calls this endpoint (HTTP POST) with JSON: {"weight": <value>}.
+    Update the latest weight stored in the core module (Wi‑Fi workflow).
     """
-    global current_weight
     data = request.get_json(force=True) or {}
     try:
-        current_weight = float(data.get("weight", 0))
+        core.last_stable_weight = float(data.get("weight", 0))
     except (TypeError, ValueError):
-        current_weight = 0.0
+        core.last_stable_weight = 0.0
     return jsonify({"ok": True})
 
 
 @app.route("/api/get_weight", methods=["GET"])
 def get_weight():
     """
-    Frontend/app can call this to read latest weight stored on server.
+    Frontend/app can call this to read latest weight stored in `core`.
     """
-    return jsonify({"weight": current_weight})
+    return jsonify({"weight": core.last_stable_weight})
 
 
 # ---------- PAGES ----------

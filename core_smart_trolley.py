@@ -1,6 +1,5 @@
 # core_smart_trolley.py - WiFi weight version
 import time
-import requests
 
 # -------------------------------
 # ESP32 + WEIGHT SETTINGS (WiFi)
@@ -40,34 +39,14 @@ monitor_enabled = True
 
 
 def read_weight():
-    """WiFi version of read_weight(): gets stable weight from ESP32 /weight"""
+    """Return the latest weight posted by the ESP32 to the server.
+
+    This project uses a Wi‑Fi workflow: the ESP32 posts JSON {"weight": <value>} to
+    `/api/update_weight` on this server. `app.py` writes that value into
+    `core.last_stable_weight`. `read_weight()` simply returns the latest stored
+    stable weight.
+    """
     global last_stable_weight
-
-    readings = []
-    start_time = time.time()
-
-    while time.time() - start_time < 2.5:
-        try:
-            r = requests.get(f"http://{ESP_IP}/weight", timeout=1)
-            data = r.json()
-            w = float(data.get("weight", 0))
-        except Exception:
-            # network or parse error, skip this sample
-            continue
-
-        readings.append(w)
-        if len(readings) > 3:
-            readings.pop(0)
-
-        if len(readings) >= 2 and max(readings) - min(readings) <= 2:
-            stable = sum(readings) / len(readings)
-            if abs(stable) < 3:
-                stable = 0.0
-            print(f"[DEBUG] Stable weight: {stable:.2f} g")
-            last_stable_weight = stable
-            return stable
-
-    print(f"[DEBUG] ❌ No stable weight found, using last stable: {last_stable_weight:.2f} g")
     return last_stable_weight
 
 
